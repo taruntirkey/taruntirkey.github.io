@@ -16,12 +16,14 @@
    - [Project Structure](#project-structure)
    - [Environment Variables](#environment-variables)
    - [Basic Server Bootstrap](#basic-server-bootstrap)
+   - [Route Skeleton](#route-skeleton)
    - [Database Setup](#database-setup)
    - [Custom Error Handler](#custom-error-handler)
    - [JSON Web Token](#json-web-token)
    - [Authorization](#authorization)
 4. [Git Source Control](#git-source-control)
    - [Basic Commands](#basic-commands)
+   - [Git Workflow](#git-workflow)
 
 # Setting Up Dev Environment
 
@@ -56,6 +58,8 @@ Download [VS Code](https://code.visualstudio.com/) and install extensions.
 | vscode-icons                  | VSCode Icons Team |
 | Multiple cursor case preserve | Cardinal90        |
 | Prisma                        | Prisma            |
+
+> NOTE: **REST Client** extension is optional as **Postman** will be used for API testing and documentation. But it can be useful to save little time and effort to run tests without leaving **VS Code**.
 
 ### Useful VS Code Keyboard Shortcuts
 
@@ -104,7 +108,7 @@ npm init -y
 **Project Dependencies**
 
 ```
-npm i express dotenv jsonwebtoken cookie-parser express-async-handler argon2 zod
+npm i express dotenv jsonwebtoken cookie-parser express-async-handler argon2 zod helmet morgan
 ```
 
 | package               | description                                  |
@@ -116,11 +120,13 @@ npm i express dotenv jsonwebtoken cookie-parser express-async-handler argon2 zod
 | jsonwebtoken          | Library for generate and verify JWTs         |
 | cookie-parser         | Middleware for parsing cookies               |
 | zod                   | Schema declaration and validation library    |
+| helmet                | Secure express app with various HTTP headers |
+| morgan                | Request logger                               |
 
 ## Dev Dependencies
 
 ```
-npm i -D typescript tsx @types/node @types/express prisma @types/jsonwebtoken @types/cookie-parser
+npm i -D typescript tsx @types/node @types/express prisma @types/jsonwebtoken @types/cookie-parser @types/morgan
 ```
 
 | package              | description                            |
@@ -132,6 +138,7 @@ npm i -D typescript tsx @types/node @types/express prisma @types/jsonwebtoken @t
 | prisma               | Prisma CLI                             |
 | @types/jsonwebtoken  | TS definition for jsonwebtoken         |
 | @types/cookie-parser | TS definition for cookie-parser        |
+| @types/morgan        | TS definition for morgan               |
 
 > [Go to Index](#quickstart-index)
 
@@ -181,7 +188,7 @@ npx -p typescript tsc --init
 
 ```
 "scripts": {
-  "dev": "tsx watch src/index.ts",
+  "dev": "tsx watch src/server.ts",
   "build": "tsc"
 },
 ```
@@ -200,7 +207,7 @@ npx -p typescript tsc --init
 -tsconfig.json
 -README.md
 -src
-  -index.ts   // Application startup or bootstrap file.
+  -server.ts   // Application startup or bootstrap file.
   -routes.ts  // Combine routes from all modules here.
   -config     // Project configurations.
     -env.ts   // Typing environment variables.
@@ -247,24 +254,92 @@ require('crypto').randomBytes(32).toString('base64url')
 ## Basic Server Bootstrap
 
 ```
+import cookieParser from "cookie-parser";
 import express from "express";
-import dotenv from "dotenv";
-dotenv.config();
+import helmet from "helmet";
+import morgan from "morgan";
+import config from "./config/env.js";
+import { errorHandler, notFound } from "./middleware/errorMiddleware.js";
+import apiRouter from "./routes.js";
 
-const port = process.env.PORT || 3000;
+const port = config.PORT || 3000;
 
 const app = express();
 
-app.get("/", (req, res) => {
-  res.send("API Running");
-});
+// Help secure Express apps by setting HTTP response headers.
+app.use(helmet());
+
+// Request body parser middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Cookie parser middleware
+app.use(cookieParser());
+
+// Request logger
+app.use(morgan("combined"));
+
+// Register Routes
+app.use("/api", apiRouter);
+
+// Error Handlers
+app.use(notFound);
+app.use(errorHandler);
 
 app
   .listen(port, () => {
     console.log(`Ready on PORT ${port}`);
   })
   .on("error", (err) => console.log(err));
+```
 
+> [Go to Index](#quickstart-index)
+
+## Route Skeleton
+
+_src/modules/users/users.controller.ts_
+
+```
+import { Request, Response } from "express";
+
+//@desc     Register user
+//@route    POST /api/users
+//@access   Public
+const registerUserHandler = (req: Request, res: Response) => {
+  res.send({ message: "User registration successful." });
+};
+
+export { registerUserHandler };
+```
+
+_src/modules/users/users.route.ts_
+
+```
+import express from "express";
+import { registerUserHandler } from "./users.controller.js";
+
+const userRouter = express.Router();
+
+userRouter.post("/", validate(createUserSchema), registerUserHandler);
+
+export default userRouter;
+```
+
+_routes.ts_
+
+```
+import express from "express";
+import userRoutes from "./modules/users/users.route.js";
+
+const apiRouter = express.Router();
+
+apiRouter.use("/healthcheck", (req, res) => {
+  res.send({ message: "OK" });
+});
+
+apiRouter.use("/users", userRoutes);
+
+export default apiRouter;
 ```
 
 > [Go to Index](#quickstart-index)
