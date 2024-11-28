@@ -12,6 +12,7 @@
    - [Dev Dependencies](#dev-dependencies)
    - [TypeScript Configuration](#typescript-configuration)
    - [package.json](#packagejson)
+   - [Path Alias](#path-alias)
 3. [Dev Tasks](#dev-tasks)
    - [Project Structure](#project-structure)
    - [Environment Variables](#environment-variables)
@@ -21,6 +22,8 @@
    - [Custom Error Handler](#custom-error-handler)
    - [JSON Web Token](#json-web-token)
    - [Authorization](#authorization)
+   - [Rate Limiter](#rate-limiter)
+   - [Schema Validation](#schema-validation)
 4. [Git Source Control](#git-source-control)
    - [Basic Commands](#basic-commands)
    - [Git Workflow](#git-workflow)
@@ -108,7 +111,7 @@ npm init -y
 **Project Dependencies**
 
 ```
-npm i express dotenv jsonwebtoken cookie-parser express-async-handler argon2 zod helmet morgan
+npm i express dotenv jsonwebtoken cookie-parser express-async-handler argon2 zod helmet morgan express-rate-limit
 ```
 
 | package               | description                                  |
@@ -122,23 +125,25 @@ npm i express dotenv jsonwebtoken cookie-parser express-async-handler argon2 zod
 | zod                   | Schema declaration and validation library    |
 | helmet                | Secure express app with various HTTP headers |
 | morgan                | Request logger                               |
+| express-rate-limit    | Request rate limiter for express             |
 
 ## Dev Dependencies
 
 ```
-npm i -D typescript tsx @types/node @types/express prisma @types/jsonwebtoken @types/cookie-parser @types/morgan
+npm i -D typescript tsx @types/node @types/express prisma @types/jsonwebtoken @types/cookie-parser @types/morgan tsc-alias
 ```
 
-| package              | description                            |
-| -------------------- | -------------------------------------- |
-| typescript           | Project level TypeScript installation  |
-| tsx                  | TypeScript runtime environment in node |
-| @types/node          | TS definition for node                 |
-| @types/express       | TS definition for express              |
-| prisma               | Prisma CLI                             |
-| @types/jsonwebtoken  | TS definition for jsonwebtoken         |
-| @types/cookie-parser | TS definition for cookie-parser        |
-| @types/morgan        | TS definition for morgan               |
+| package              | description                                                          |
+| -------------------- | -------------------------------------------------------------------- |
+| typescript           | Project level TypeScript installation                                |
+| tsx                  | TypeScript runtime environment in node                               |
+| @types/node          | TS definition for node                                               |
+| @types/express       | TS definition for express                                            |
+| prisma               | Prisma CLI                                                           |
+| @types/jsonwebtoken  | TS definition for jsonwebtoken                                       |
+| @types/cookie-parser | TS definition for cookie-parser                                      |
+| @types/morgan        | TS definition for morgan                                             |
+| tsc-alias            | Replace alias paths with relative paths after typescript compilation |
 
 > [Go to Index](#quickstart-index)
 
@@ -155,14 +160,16 @@ npx -p typescript tsc --init
 ```
 {
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "target": "ES2023",
-    "sourceMap": true,
-    "outDir": "dist",
-    "paths": {
-      "@/*": ["./*"],
-    }
+    "target": "ES6" /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */,
+    "module": "NodeNext" /* Specify what module code is generated. */,
+    "moduleResolution": "NodeNext" /* Specify how TypeScript looks up a file from a given module specifier. */,
+    "sourceMap": true /* Create source map files for emitted JavaScript files. */,
+    "outDir": "dist" /* Specify an output folder for all emitted files. */,
+    // "verbatimModuleSyntax": true /* Do not transform or elide any imports or exports not marked as type-only, ensuring they are written in the output file's format based on the 'module' setting. */,
+    "esModuleInterop": true /* Emit additional JavaScript to ease support for importing CommonJS modules. This enables 'allowSyntheticDefaultImports' for type compatibility. */,
+    "forceConsistentCasingInFileNames": true /* Ensure that casing is correct in imports. */,
+    "strict": true /* Enable all strict type-checking options. */,
+    "skipLibCheck": true /* Skip type checking all .d.ts files. */
   },
   "include": ["src/**/*"]
 }
@@ -190,10 +197,30 @@ npx -p typescript tsc --init
 "scripts": {
   "dev": "tsx watch src/server.ts",
   "build": "tsc"
+  "start": "node ./dist/src/server.js"
 },
 ```
 
 > [Go to Index](#quickstart-index)
+
+## Path Alias
+
+_tsconfig.json_
+
+```
+"baseUrl": "./" /* Specify the base directory to resolve non-relative module names. */,
+    "paths": {
+      "@/*": ["./*"],
+      "@app/*": ["./src/*"],
+      "@middleware/*": ["./src/middleware/*"]
+    } /* Specify a set of entries that re-map imports to additional lookup locations. */,
+```
+
+modify `"build"` script in _package.json_
+
+```
+    "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
+```
 
 # Dev Tasks
 
@@ -261,10 +288,14 @@ import morgan from "morgan";
 import config from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/errorMiddleware.js";
 import apiRouter from "./routes.js";
+import { rateLimitByIp } from "./middleware/apiRateLimitMiddleware.js";
 
 const port = config.PORT || 3000;
 
 const app = express();
+
+// Rate Limiter
+app.use(rateLimitByIp);
 
 // Help secure Express apps by setting HTTP response headers.
 app.use(helmet());
@@ -504,6 +535,68 @@ const protect = asyncHandler(
 );
 
 export { protect };
+```
+
+> [Go to Index](#quickstart-index)
+
+## Rate Limiter
+
+**Middleware**
+
+```
+import { rateLimit } from "express-rate-limit";
+
+// Maximum 100 requests per 15-min from same IP.
+const rateLimitByIp = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipFailedRequests: true,
+  message: "You have exceeded the request limit.",
+});
+
+// Maximum 10 failed login requests per 3 hours by same user.
+const rateLimitByUser = rateLimit({
+  windowMs: 3 * 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req, res) => {
+    return req.body.username;
+  },
+  message: "Your account is blocked for 3 hours due to suspicious activity.",
+});
+
+export { rateLimitByIp, rateLimitByUser };
+```
+
+**Usage**
+
+_server.ts_
+
+```
+import { rateLimitByIp } from "./middleware/apiRateLimitMiddleware.js";
+
+const app = express();
+
+// Rate Limiter
+app.use(rateLimitByIp);
+...
+```
+
+_users.route.ts_
+
+```
+import { rateLimitByUser } from "../../middleware/apiRateLimitMiddleware.js";
+...
+userRouter.post(
+  "/auth",
+  rateLimitByUser,
+  validate(authUserSchema),
+  authUserHandler
+);
 ```
 
 > [Go to Index](#quickstart-index)
