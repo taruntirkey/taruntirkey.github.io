@@ -196,8 +196,8 @@ npx -p typescript tsc --init
 ```
 "scripts": {
   "dev": "tsx watch src/server.ts",
-  "build": "tsc"
-  "start": "node ./dist/src/server.js"
+  "build": "tsc",
+  "start": "node ./dist/server.js"
 },
 ```
 
